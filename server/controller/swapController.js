@@ -88,3 +88,214 @@ export const createSwapRequest = async (req, res) => {
         });
     }
 };
+
+
+
+
+export const getIncomingSwapRequests = async (req, res) => {
+    try {
+        const requests = await SwapRequest.find({
+            targetEmployeeId: req.user._id,
+            status: "pending_employee"
+        })
+            .populate("requesterId", "name email")
+            .populate("targetEmployeeId", "name email")
+            .populate("shiftId");
+
+        res.status(200).json({
+            message: "Incoming swap requests fetched successfully",
+            count: requests.length,
+            requests
+        });
+
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            message: "Server error"
+        });
+    }
+};
+
+
+export const respondToSwapRequest = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action } = req.body;
+
+        if (!["accept", "reject"].includes(action)) {
+            return res.status(400).json({
+                message: "Action must be accept or reject"
+            });
+        }
+
+        const swapRequest = await SwapRequest.findOne({
+            _id: id,
+            targetEmployeeId: req.user._id,
+            status: "pending_employee"
+        });
+
+        if (!swapRequest) {
+            return res.status(404).json({
+                message: "Pending swap request not found"
+            });
+        }
+
+        if (action === "accept") {
+            swapRequest.status = "pending_manager";
+        } else {
+            swapRequest.status = "rejected";
+        }
+
+        await swapRequest.save();
+
+        res.status(200).json({
+            message: action === "accept"
+                ? "Swap request accepted and sent to manager"
+                : "Swap request rejected",
+            swapRequest
+        });
+
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            message: "Server error"
+        });
+    }
+};
+
+
+export const getPendingManagerSwapRequests = async (req, res) => {
+    try {
+        const requests = await SwapRequest.find({
+            status: "pending_manager"
+        })
+            .populate("requesterId", "name email")
+            .populate("targetEmployeeId", "name email")
+            .populate("shiftId");
+
+        res.status(200).json({
+            message: "Pending manager swap requests fetched successfully",
+            count: requests.length,
+            requests
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+export const managerRespondToSwapRequest = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action } = req.body;
+
+        if (!["approve", "reject"].includes(action)) {
+            return res.status(400).json({
+                message: "Action must be approve or reject"
+            });
+        }
+
+        const swapRequest = await SwapRequest.findOne({
+            _id: id,
+            status: "pending_manager"
+        });
+
+        if (!swapRequest) {
+            return res.status(404).json({
+                message: "Pending manager swap request not found"
+            });
+        }
+
+        if (action === "approve") {
+            const shift = await Shift.findById(swapRequest.shiftId);
+
+            if (!shift) {
+                return res.status(404).json({
+                    message: "Shift not found"
+                });
+            }
+
+            // Ensure the shift has not been reassigned already
+            if (
+                shift.employeeId.toString() !==
+                swapRequest.requesterId.toString()
+            ) {
+                return res.status(409).json({
+                    message: "Shift assignment has changed. Cannot approve."
+                });
+            }
+
+            shift.employeeId = swapRequest.targetEmployeeId;
+            await shift.save();
+
+            swapRequest.status = "approved";
+        } else {
+            swapRequest.status = "rejected";
+        }
+
+        swapRequest.managerId = req.user._id;
+        await swapRequest.save();
+
+        res.status(200).json({
+            message:
+                action === "approve"
+                    ? "Swap request approved and shift reassigned successfully"
+                    : "Swap request rejected successfully",
+            swapRequest
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+
+
+export const getMySwapRequests = async (req, res) => {
+    try {
+        const requests = await SwapRequest.find({
+            requesterId: req.user._id
+        })
+            .populate("requesterId", "name email")
+            .populate("targetEmployeeId", "name email")
+            .populate("shiftId")
+            .populate("managerId", "name email")
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({
+            message: "Your swap request history fetched successfully",
+            count: requests.length,
+            requests
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+
+export 
+const getReceivedSwapRequestHistory = async (req, res) => {
+    try {
+        const requests = await SwapRequest.find({
+            targetEmployeeId: req.user._id
+        })
+            .populate("requesterId", "name email")
+            .populate("targetEmployeeId", "name email")
+            .populate("shiftId")
+            .populate("managerId", "name email")
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({
+            message: "Received swap request history fetched successfully",
+            count: requests.length,
+            requests
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
