@@ -1,6 +1,6 @@
 import express from "express";
 
-import { createShift, deleteShift, getAllShifts, getMyShifts, updateShift } from "../controller/shiftController.js";
+import { createShift, deleteShift, getAllShifts, getCalendarShifts, getMyShifts, updateShift } from "../controller/shiftController.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import roleMiddleware from "../middleware/roleMiddleware.js";
@@ -47,7 +47,15 @@ router.delete(
     deleteShift
 );
 
+// http://localhost:5000/api/shifts/calendar
 
+// Get calendar shifts for managers and employees
+router.get(
+    "/calendar",
+    authMiddleware,
+    roleMiddleware("manager", "employee"),
+    getCalendarShifts
+);
 
 
 

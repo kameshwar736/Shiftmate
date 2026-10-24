@@ -1,3 +1,4 @@
+import Notification from "../model/Notification.js";
 import Shift from "../model/Shift.js";
 import SwapRequest from "../model/SwapRequest.js";
 import User from "../model/User.js";
@@ -76,7 +77,23 @@ export const createSwapRequest = async (req, res) => {
             reason
         });
 
-        res.status(201).json({
+        // Create notification
+        // Notify target employee about the swap request
+        try {
+            await Notification.create({
+                userId: targetEmployee._id,
+                message: `${req.user.name} has requested a swap for their ${shift.shiftType} shift on ${new Date(
+                    shift.date
+                ).toLocaleDateString("en-IN")}.`,
+                type: "swap_requested",
+                relatedId: swapRequest._id
+            });
+        } catch (notificationError) {
+            console.error("Swap notification creation failed:", notificationError);
+        }
+
+
+        return  res.status(201).json({
             message: "Swap request created successfully",
             swapRequest
         });
@@ -119,6 +136,7 @@ export const getIncomingSwapRequests = async (req, res) => {
 };
 
 
+
 export const respondToSwapRequest = async (req, res) => {
     try {
         const { id } = req.params;
@@ -150,7 +168,24 @@ export const respondToSwapRequest = async (req, res) => {
 
         await swapRequest.save();
 
-        res.status(200).json({
+        // Notify the original requester
+        try {
+            await Notification.create({
+                userId: swapRequest.requesterId,
+                message: action === "accept"
+                    ? `${req.user.name} accepted your shift swap request. It is awaiting manager approval.`
+                    : `${req.user.name} rejected your shift swap request.`,
+                type: "swap_response",
+                relatedId: swapRequest._id
+            });
+        } catch (notificationError) {
+            console.error(
+                "Swap response notification failed:",
+                notificationError
+            );
+        }
+
+        return res.status(200).json({
             message: action === "accept"
                 ? "Swap request accepted and sent to manager"
                 : "Swap request rejected",
@@ -160,11 +195,12 @@ export const respondToSwapRequest = async (req, res) => {
     } catch (error) {
         console.error(error);
 
-        res.status(500).json({
+        return res.status(500).json({
             message: "Server error"
         });
     }
 };
+
 
 
 export const getPendingManagerSwapRequests = async (req, res) => {
@@ -186,6 +222,7 @@ export const getPendingManagerSwapRequests = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 };
+
 
 
 export const managerRespondToSwapRequest = async (req, res) => {
@@ -210,15 +247,15 @@ export const managerRespondToSwapRequest = async (req, res) => {
             });
         }
 
+        const shift = await Shift.findById(swapRequest.shiftId);
+
+        if (!shift) {
+            return res.status(404).json({
+                message: "Shift not found"
+            });
+        }
+
         if (action === "approve") {
-            const shift = await Shift.findById(swapRequest.shiftId);
-
-            if (!shift) {
-                return res.status(404).json({
-                    message: "Shift not found"
-                });
-            }
-
             const targetEmployee = await User.findOne({
                 _id: swapRequest.targetEmployeeId,
                 role: "employee",
@@ -264,7 +301,7 @@ export const managerRespondToSwapRequest = async (req, res) => {
                 });
             }
 
-            // Reassign only after all checks pass
+            // Reassign the shift
             shift.employeeId = swapRequest.targetEmployeeId;
             await shift.save();
 
@@ -276,6 +313,37 @@ export const managerRespondToSwapRequest = async (req, res) => {
         swapRequest.managerId = req.user._id;
         await swapRequest.save();
 
+        // Notify both employees
+        try {
+            const message = action === "approve"
+                ? "The manager approved the shift swap. The shift has been reassigned."
+                : "The manager rejected the shift swap request.";
+
+            await Notification.insertMany([
+                {
+                    userId: swapRequest.requesterId,
+                    message,
+                    type: action === "approve"
+                        ? "swap_approved"
+                        : "swap_rejected",
+                    relatedId: swapRequest._id
+                },
+                {
+                    userId: swapRequest.targetEmployeeId,
+                    message,
+                    type: action === "approve"
+                        ? "swap_approved"
+                        : "swap_rejected",
+                    relatedId: swapRequest._id
+                }
+            ]);
+        } catch (notificationError) {
+            console.error(
+                "Manager decision notification failed:",
+                notificationError
+            );
+        }
+
         return res.status(200).json({
             message:
                 action === "approve"
@@ -283,6 +351,7 @@ export const managerRespondToSwapRequest = async (req, res) => {
                     : "Swap request rejected successfully",
             swapRequest
         });
+
     } catch (error) {
         console.error(error);
         return res.status(500).json({
@@ -290,6 +359,7 @@ export const managerRespondToSwapRequest = async (req, res) => {
         });
     }
 };
+
 
 
 

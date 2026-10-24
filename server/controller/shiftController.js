@@ -348,3 +348,90 @@ export const deleteShift = async (req, res) => {
     }
 };
 
+
+export const getCalendarShifts = async (req, res) => {
+    try {
+        const { startDate, endDate, employeeId } = req.query;
+
+        // Validate required date parameters
+        if (!startDate || !endDate) {
+            return res.status(400).json({
+                message: "startDate and endDate are required (YYYY-MM-DD)."
+            });
+        }
+
+        // Require the YYYY-MM-DD format
+        const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+        if (!datePattern.test(startDate) || !datePattern.test(endDate)) {
+            return res.status(400).json({
+                message: "Dates must use YYYY-MM-DD format."
+            });
+        }
+
+        const start = new Date(`${startDate}T00:00:00.000Z`);
+        const end = new Date(`${endDate}T00:00:00.000Z`);
+
+        // Reject invalid calendar dates
+        if (
+            Number.isNaN(start.getTime()) ||
+            Number.isNaN(end.getTime()) ||
+            start.toISOString().slice(0, 10) !== startDate ||
+            end.toISOString().slice(0, 10) !== endDate
+        ) {
+            return res.status(400).json({
+                message: "Invalid calendar date."
+            });
+        }
+
+        if (start > end) {
+            return res.status(400).json({
+                message: "startDate cannot be after endDate."
+            });
+        }
+
+        // Include the entire end date
+        const endExclusive = new Date(end);
+        endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+
+        const query = {
+            date: {
+                $gte: start,
+                $lt: endExclusive
+            }
+        };
+
+        // Employees can only see their own shifts
+        if (req.user.role === "employee") {
+            query.employeeId = req.user._id;
+        } else if (employeeId) {
+            // Managers may filter by employee
+            if (!/^[a-fA-F0-9]{24}$/.test(employeeId)) {
+                return res.status(400).json({
+                    message: "Invalid employeeId."
+                });
+            }
+
+            query.employeeId = employeeId;
+        }
+
+        const shifts = await Shift.find(query)
+            .populate("employeeId", "name email role")
+            .populate("createdBy", "name email")
+            .sort({ date: 1, startTime: 1 });
+
+        return res.status(200).json({
+            message: "Calendar shifts fetched successfully",
+            count: shifts.length,
+            startDate,
+            endDate,
+            shifts
+        });
+    } catch (error) {
+        console.error("Calendar shifts error:", error);
+
+        return res.status(500).json({
+            message: "Server error"
+        });
+    }
+};
