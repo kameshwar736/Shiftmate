@@ -1,6 +1,7 @@
 import Shift from "../model/Shift.js";
 import SwapRequest from "../model/SwapRequest.js";
 import User from "../model/User.js";
+import { hasShiftOverlap } from "./shiftController.js";
 
 export const createSwapRequest = async (req, res) => {
     try {
@@ -186,6 +187,7 @@ export const getPendingManagerSwapRequests = async (req, res) => {
     }
 };
 
+
 export const managerRespondToSwapRequest = async (req, res) => {
     try {
         const { id } = req.params;
@@ -217,7 +219,20 @@ export const managerRespondToSwapRequest = async (req, res) => {
                 });
             }
 
-            // Ensure the shift has not been reassigned already
+            const targetEmployee = await User.findOne({
+                _id: swapRequest.targetEmployeeId,
+                role: "employee",
+                isActive: true
+            });
+
+            if (!targetEmployee) {
+                return res.status(400).json({
+                    message:
+                        "Cannot approve swap: target employee is inactive or invalid."
+                });
+            }
+
+            // Confirm the shift still belongs to the requester
             if (
                 shift.employeeId.toString() !==
                 swapRequest.requesterId.toString()
@@ -227,6 +242,29 @@ export const managerRespondToSwapRequest = async (req, res) => {
                 });
             }
 
+            // Check for overlapping shifts for the target employee
+            const overlapCheck = await hasShiftOverlap({
+                employeeId: swapRequest.targetEmployeeId,
+                date: shift.date,
+                startTime: shift.startTime,
+                endTime: shift.endTime,
+                excludeShiftId: shift._id
+            });
+
+            if (overlapCheck.invalidTime) {
+                return res.status(400).json({
+                    message: "Shift has an invalid date or time."
+                });
+            }
+
+            if (overlapCheck.overlaps) {
+                return res.status(409).json({
+                    message:
+                        "Cannot approve swap: target employee has an overlapping scheduled shift."
+                });
+            }
+
+            // Reassign only after all checks pass
             shift.employeeId = swapRequest.targetEmployeeId;
             await shift.save();
 
@@ -238,7 +276,7 @@ export const managerRespondToSwapRequest = async (req, res) => {
         swapRequest.managerId = req.user._id;
         await swapRequest.save();
 
-        res.status(200).json({
+        return res.status(200).json({
             message:
                 action === "approve"
                     ? "Swap request approved and shift reassigned successfully"
@@ -247,7 +285,9 @@ export const managerRespondToSwapRequest = async (req, res) => {
         });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({
+            message: "Server error"
+        });
     }
 };
 
@@ -276,8 +316,7 @@ export const getMySwapRequests = async (req, res) => {
 };
 
 
-export 
-const getReceivedSwapRequestHistory = async (req, res) => {
+export const getReceivedSwapRequestHistory = async (req, res) => {
     try {
         const requests = await SwapRequest.find({
             targetEmployeeId: req.user._id

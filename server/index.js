@@ -8,6 +8,7 @@ import swapRoutes from "./routes/swapRoutes.js";
 
 import connectDB from './config/db.js'
 import cookieParser from 'cookie-parser';
+import notificationRoutes from "./routes/notificationRoutes.js";
 
 dotenv.config()
 
@@ -33,6 +34,7 @@ app.use("/api/users", userRoutes);
 
 app.use("/api/swaps", swapRoutes);
 
+app.use("/api/notifications", notificationRoutes);
 
 app.listen(PORT,()=>{
     console.log(`Server running on http://localhost:${PORT}`);
